@@ -334,6 +334,7 @@ function renderHome() {
       '<div class="muted" style="font-size:13px;margin:6px 0 12px">คอร์ส ' + S.cfg.package_sessions + ' ครั้ง ฿' + Number(S.cfg.price_package).toLocaleString() + ' (เฉลี่ย ฿' + Math.round(S.cfg.price_package / S.cfg.package_sessions) + '/ครั้ง) หรือจองรายครั้ง ฿' + S.cfg.price_per_session + '</div>' +
       '<button class="btn btn-ball" onclick="openBuySheet()">ซื้อคอร์ส ' + S.cfg.package_sessions + ' ครั้ง</button></div>';
   }
+  html += creditCard();
   html += '</div>';
 
   // คลาสถัดไป
@@ -429,7 +430,8 @@ function openBookSheet() {
   html += payOpt("per_session", "ชำระรายครั้ง",
     credit > 0 ? "มีเครดิต " + credit + " ครั้ง — ใช้ได้เลยไม่ต้องชำระเพิ่ม" : "ไม่รวมค่าเช่าสนาม",
     credit > 0 ? "฿0" : "฿" + S.cfg.price_per_session) + '</div>' +
-    '<button class="btn btn-primary" style="margin-top:14px" onclick="confirmBooking()">ยืนยันการจอง</button>';
+    '<button class="btn btn-primary" style="margin-top:14px" onclick="confirmBooking()">ยืนยันการจอง</button>' +
+    '<div class="muted" style="font-size:12px;text-align:center;margin-top:10px">ยกเลิกฟรีได้ถึง 2 ชั่วโมงก่อนเวลาเรียน — ช้ากว่านั้นไม่คืนสิทธิ์/เครดิต</div>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
@@ -495,6 +497,9 @@ function renderMine() {
           (pkg.active.remaining <= 2 ? '<button class="btn btn-ball btn-sm" onclick="openBuySheet()">ซื้อคอร์สต่อ</button>' : '') +
         '</div></div></div>';
     }
+    if (S.me.per_session_credit > 0) {
+      html += '<div style="margin:0 20px">' + creditCard() + '</div>';
+    }
     html += '<div class="section"><div class="section-title">กำลังจะถึง</div>';
     if (res.upcoming.length) {
       html += res.upcoming.map(function(b) {
@@ -505,7 +510,7 @@ function renderMine() {
           (b.payment_type === "per_session" && b.payment_status !== "verified"
             ? '<button class="btn btn-ball btn-sm" style="font-size:12px;padding:5px 12px" onclick="openPaySheet(' + S.cfg.price_per_session + ')">ชำระเงิน</button>'
             : '') +
-          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="cancelBooking(\'' + b.id + '\')">ยกเลิก</button></div></div>';
+          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="cancelBooking(\'' + b.id + '\',\'' + b.starts_at + '\')">ยกเลิก</button></div></div>';
       }).join("");
     } else {
       html += '<div class="card muted center" style="padding:22px;font-size:14px">ยังไม่มีคลาสที่จองไว้</div>';
@@ -533,12 +538,31 @@ function payLabel(b) {
   var pay = b.payment_status === "verified" ? "ชำระแล้ว" : "รอชำระ ฿" + S.cfg.price_per_session;
   return "รายครั้ง · " + pay;
 }
-function cancelBooking(id) {
-  if (!confirm("ยืนยันยกเลิกการจองนี้?")) return;
+function cancelBooking(id, startsAt) {
+  var hoursLeft = (new Date(startsAt).getTime() - Date.now()) / 3600000;
+  var msg = hoursLeft < 2
+    ? "ใกล้ถึงเวลาเรียนแล้ว (เหลือน้อยกว่า 2 ชม.)\nยกเลิกตอนนี้จะไม่ได้สิทธิ์คอร์ส/เครดิตคืน\n\nยืนยันยกเลิก?"
+    : "ยืนยันยกเลิกการจองนี้?\nสิทธิ์คอร์สหรือยอดที่ชำระแล้วจะถูกคืน/เก็บเป็นเครดิตให้";
+  if (!confirm(msg)) return;
   api("/bookings/" + id + "/cancel", { method: "POST" }).then(function(res) {
-    if (res.ok) { toast("ยกเลิกแล้ว สิทธิ์ถูกคืนให้ (ถ้าใช้คอร์ส)"); loadMe(function(){ renderMine(); }); }
+    if (res.ok) {
+      toast(res.refund === false
+        ? "ยกเลิกแล้ว — ไม่คืนสิทธิ์/เครดิต (ตามเงื่อนไข 2 ชม.)"
+        : res.credited ? "ยกเลิกแล้ว เก็บยอดที่ชำระไว้เป็นเครดิตให้เรียบร้อย" : "ยกเลิกแล้ว คืนสิทธิ์เรียบร้อย");
+      loadMe(function(){ renderMine(); });
+    }
     else toast("ยกเลิกไม่สำเร็จ");
   });
+}
+function creditCard() {
+  var n = S.me.per_session_credit || 0;
+  if (!n) return "";
+  return '<div class="card" style="margin-top:12px;box-shadow:0 0 0 1.5px var(--ball)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<div class="muted" style="font-size:13px;font-weight:500">เครดิตรายครั้ง (จากคลาสที่ถูกยกเลิก)</div>' +
+      '<div style="font-size:15px;font-weight:700">' + n + ' ครั้ง</div></div>' +
+    '<div style="margin-top:10px">' + ballDots(n, n, false) + '</div>' +
+    '<div class="muted" style="font-size:12px;margin-top:10px">ระบบจะใช้เครดิตให้อัตโนมัติเมื่อจองคลาสรายครั้งครั้งถัดไป — ไม่ต้องชำระเพิ่ม</div></div>';
 }
 
 // ---------- student: buy ----------
