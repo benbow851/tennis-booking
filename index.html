@@ -330,7 +330,7 @@ function renderHome() {
     var b = me.upcoming[0];
     html += '<div class="card listrow">' + dateBox(b.starts_at) +
       '<div style="flex-grow:1;min-width:0"><div style="font-size:15px;font-weight:700">' + thDate(b.starts_at, { weekday: "long" }) + ' · ' + slotLabel(b) + '</div>' +
-      '<div class="muted" style="font-size:13px;margin-top:2px">' + (S.cfg.court_name ? esc(S.cfg.court_name) : (b.payment_type === "package" ? "ใช้สิทธิ์คอร์ส" : "รายครั้ง")) + '</div></div>' +
+      '<div class="muted" style="font-size:13px;margin-top:2px">' + esc(b.court || S.cfg.court_name || (b.payment_type === "package" ? "ใช้สิทธิ์คอร์ส" : "รายครั้ง")) + '</div></div>' +
       statusChip(b.status) + '</div>';
   } else {
     html += '<div class="card muted center" style="font-size:14px;padding:22px">ยังไม่มีคลาสที่จองไว้ — กดจองคลาสได้เลย</div>';
@@ -469,7 +469,7 @@ function renderMine() {
       html += res.upcoming.map(function(b) {
         return '<div class="card listrow" style="margin-bottom:10px">' + dateBox(b.starts_at) +
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:700">' + thDate(b.starts_at, { weekday: "long" }) + ' · ' + slotLabel(b) + '</div>' +
-          '<div class="muted" style="font-size:12px;margin-top:1px">' + payLabel(b) + '</div></div>' +
+          '<div class="muted" style="font-size:12px;margin-top:1px">' + payLabel(b) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
           '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="cancelBooking(\'' + b.id + '\')">ยกเลิก</button></div></div>';
       }).join("");
@@ -520,9 +520,11 @@ function openBuySheet() {
         '<span style="font-size:13px;opacity:.75">เฉลี่ย ฿' + Math.round(c.price_package / c.package_sessions) + ' / ครั้ง</span></div>' +
       '<div style="font-size:13px;opacity:.92;margin-top:10px;position:relative">สิทธิ์ ' + c.package_sessions + ' ครั้ง พร้อมตัวนับคงเหลืออัตโนมัติ ใช้จองคลาสได้ทันทีหลังโค้ชยืนยันการชำระ</div></div>' +
     '<div class="card" style="margin-top:12px"><div style="font-size:14px;font-weight:700">วิธีชำระเงิน</div>' +
-      '<div class="muted" style="font-size:13px;margin-top:6px;line-height:1.7">' +
-        (c.promptpay_id ? 'PromptPay: <b style="color:var(--ink)">' + esc(c.promptpay_id) + '</b><br>' : '') +
-        'โอนแล้วส่งสลิปในแชท LINE ของโค้ช<br>โค้ชยืนยันภายใน 24 ชม. แล้วคอร์สจะพร้อมใช้</div></div>' +
+      '<div style="display:flex;gap:14px;align-items:center;margin-top:8px">' +
+        '<img src="./qr.jpg" alt="PromptPay QR" onerror="this.parentNode.removeChild(this)" style="width:120px;border-radius:10px;border:1px solid var(--line);flex-shrink:0">' +
+        '<div class="muted" style="font-size:13px;line-height:1.7">' +
+          (c.promptpay_id ? 'PromptPay: <b style="color:var(--ink)">' + esc(c.promptpay_id) + '</b><br>' : '') +
+          'สแกน/โอนแล้วส่งสลิปในแชท LINE<br>โค้ชยืนยันภายใน 24 ชม. คอร์สจะพร้อมใช้</div></div></div>' +
     '<button class="btn btn-primary" style="margin-top:14px" onclick="buyPackage()">ยืนยันซื้อคอร์ส ' + c.package_sessions + ' ครั้ง · ฿' + Number(c.price_package).toLocaleString() + '</button>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
@@ -616,8 +618,9 @@ function renderCoToday() {
         return '<div style="display:flex;gap:12px;margin-bottom:10px"><div style="width:46px;font-size:13px;font-weight:700;color:#5E7267;padding-top:14px;flex-shrink:0">' + String(h.hour).padStart(2, "0") + ':00</div>' +
           '<div class="card" style="flex-grow:1;display:flex;align-items:center;gap:10px">' +
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:700">' + esc(b.student) + '</div>' +
-          '<div class="muted" style="font-size:12px;margin-top:1px">' + (b.payment_type === "package" ? "คอร์ส · ครั้งที่ " + (b.session_number || "-") : "รายครั้ง ฿" + S.cfg.price_per_session) + '</div></div>' +
-          statusChip(b.status) + '</div></div>';
+          '<div class="muted" style="font-size:12px;margin-top:1px">' + (b.payment_type === "package" ? "คอร์ส · ครั้งที่ " + (b.session_number || "-") : "รายครั้ง ฿" + S.cfg.price_per_session) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
+          '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
+          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="coSetCourt(\'' + b.id + '\',\'' + esc(b.court || "") + '\')">' + (b.court ? "แก้สนาม" : "ระบุสนาม") + '</button></div></div></div>';
       }).join("");
     } else {
       html += '<div class="card muted center" style="padding:22px;font-size:14px">ไม่มีคลาสในวันนี้</div>';
@@ -630,6 +633,15 @@ function coShiftDay(n) {
   var d = new Date(S.coachDate + "T12:00:00+07:00");
   S.coachDate = dateStr(new Date(d.getTime() + n * 86400000));
   renderCoToday();
+}
+function coSetCourt(id, current) {
+  var court = prompt("ชื่อสนามสำหรับคลาสนี้ (เว้นว่าง = ลบออก)", current || "");
+  if (court === null) return;
+  api("/coach/bookings/" + id + "/court", { method: "POST", body: JSON.stringify({ court: court.trim() }) })
+    .then(function(res) {
+      if (res.ok) { toast(court.trim() ? "บันทึกสนามแล้ว แจ้งนักเรียนทาง LINE แล้ว" : "ลบชื่อสนามแล้ว"); renderCoToday(); }
+      else toast("บันทึกไม่สำเร็จ");
+    });
 }
 function coBooking(id, action) {
   if (action === "reject" && !confirm("ปฏิเสธการจองนี้? สิทธิ์คอร์สจะถูกคืนให้นักเรียน")) return;
