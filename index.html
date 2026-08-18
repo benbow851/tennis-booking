@@ -696,11 +696,30 @@ function coShiftDay(n) {
   renderCoToday();
 }
 function coSetCourt(id, current) {
-  var court = prompt("ชื่อสนามสำหรับคลาสนี้ (เว้นว่าง = ลบออก)", current || "");
-  if (court === null) return;
-  api("/coach/bookings/" + id + "/court", { method: "POST", body: JSON.stringify({ court: court.trim() }) })
+  var opts = S.cfg.court_options || [];
+  var isCustom = current && opts.indexOf(current) < 0;
+  var html = '<div class="handle"></div>' +
+    '<div style="font-size:16px;font-weight:700">ระบุสนามสำหรับคลาสนี้</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">' +
+    opts.map(function(o) {
+      var sel = current === o;
+      return '<button class="btn btn-ghost btn-sm" style="font-size:14px;padding:11px 20px;' +
+        (sel ? 'border:1.5px solid var(--green2);background:#F0F6F1;font-weight:700;' : '') +
+        '" onclick="saveCourt(\'' + id + '\',\'' + esc(o) + '\')">' + esc(o) + '</button>';
+    }).join("") + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:12px">' +
+      '<input id="court-input" placeholder="หรือพิมพ์ชื่อสนามเอง" value="' + (isCustom ? esc(current) : "") + '" style="flex:1;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit">' +
+      '<button class="btn btn-primary btn-sm" style="padding:12px 20px;font-size:14px" onclick="saveCourt(\'' + id + '\', $(\'court-input\').value)">บันทึก</button></div>' +
+    (current ? '<button class="btn btn-ghost" style="margin-top:10px;color:var(--clay);font-size:14px" onclick="saveCourt(\'' + id + '\',\'\')">ลบชื่อสนาม</button>' : '');
+  $("sheet").innerHTML = html;
+  $("sheet").classList.add("open"); $("overlay").classList.add("open");
+}
+function saveCourt(id, court) {
+  court = String(court || "").trim();
+  closeSheet();
+  api("/coach/bookings/" + id + "/court", { method: "POST", body: JSON.stringify({ court: court }) })
     .then(function(res) {
-      if (res.ok) { toast(court.trim() ? "บันทึกสนามแล้ว แจ้งนักเรียนทาง LINE แล้ว" : "ลบชื่อสนามแล้ว"); renderCoToday(); }
+      if (res.ok) { toast(court ? "บันทึก " + court + " แล้ว แจ้งนักเรียนทาง LINE แล้ว" : "ลบชื่อสนามแล้ว"); renderCoToday(); }
       else toast("บันทึกไม่สำเร็จ");
     });
 }
