@@ -659,7 +659,11 @@ function renderCoToday() {
         '<div style="font-size:30px;font-weight:700;margin-top:4px">฿' + Number(rev.total).toLocaleString() + '</div>' +
         '<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">' +
           'โอน ฿' + Number(rev.transfer).toLocaleString() + ' · เงินสด ฿' + Number(rev.cash).toLocaleString() + '<br>' +
-          'คอร์ส ฿' + Number(rev.package_total).toLocaleString() + ' · รายครั้ง ฿' + Number(rev.per_session_total).toLocaleString() + ' · ' + rev.count + ' รายการ</div></div></div>';
+          'คอร์ส ฿' + Number(rev.package_total).toLocaleString() + ' · รายครั้ง/สด ฿' + Number(rev.per_session_total).toLocaleString() + ' · ' + rev.count + ' รายการ</div>' +
+        '<div style="display:flex;gap:8px;margin-top:12px">' +
+          '<button class="btn btn-ball btn-sm" style="font-size:13px" onclick="openCashSheet()">+ บันทึกเงินสด</button>' +
+          '<button class="btn btn-ghost btn-sm" style="font-size:13px" onclick="openRevenueList()">ดูรายการ</button></div></div></div>';
+      S._rev = rev;
     }
     if (pending.ok && (pending.bookings.length || pending.payments.length)) {
       html += '<div class="section"><div class="section-title">รอดำเนินการ <span class="chip" style="background:var(--clay);color:#fff">' + (pending.bookings.length + pending.payments.length) + '</span></div>';
@@ -702,6 +706,59 @@ function renderCoToday() {
     html += '</div>';
     $("co-today-body").innerHTML = html;
   });
+}
+function openCashSheet() {
+  api("/coach/students").then(function(res) {
+    var opts = res.ok ? res.students : [];
+    var html = '<div class="handle"></div>' +
+      '<div style="font-size:16px;font-weight:700">บันทึกเงินสด</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">กรอกอิสระ เช่น รับเงินสดหลังเรียน — รวมเข้าสรุปรายได้ทันที ไม่สร้างเครดิตให้นักเรียน</div>' +
+      '<div style="font-size:13px;font-weight:700;margin-top:14px">ยอดเงิน (บาท) *</div>' +
+      '<input id="cash-amount" type="number" inputmode="numeric" placeholder="เช่น 600" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
+      '<div style="font-size:13px;font-weight:700;margin-top:14px">นักเรียน (ไม่บังคับ)</div>' +
+      '<select id="cash-student" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px;background:#fff">' +
+        '<option value="">ไม่ระบุ</option>' +
+        opts.map(function(o){ return '<option value="' + o.id + '">' + esc(o.name) + '</option>'; }).join("") + '</select>' +
+      '<div style="font-size:13px;font-weight:700;margin-top:14px">โน้ต (ไม่บังคับ)</div>' +
+      '<input id="cash-note" placeholder="เช่น ค่าเรียนสดหลังคลาส 18:00" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
+      '<button class="btn btn-primary" style="margin-top:14px" onclick="saveCash()">บันทึกเงินสด</button>';
+    $("sheet").innerHTML = html;
+    $("sheet").classList.add("open"); $("overlay").classList.add("open");
+  });
+}
+function saveCash() {
+  var amt = parseFloat($("cash-amount").value) || 0;
+  if (amt <= 0) { toast("กรอกยอดเงินก่อนครับ"); return; }
+  var body = { amount: amt, student_id: $("cash-student").value || null, note: $("cash-note").value };
+  closeSheet();
+  api("/coach/cash", { method: "POST", body: JSON.stringify(body) }).then(function(res) {
+    if (res.ok) { toast("บันทึกเงินสด ฿" + amt.toLocaleString() + " แล้ว"); renderCoToday(); }
+    else toast("บันทึกไม่สำเร็จ");
+  });
+}
+function openRevenueList() {
+  var rev = S._rev;
+  if (!rev || !rev.items) return;
+  var kindLabel = { package: "คอร์ส", per_session: "รายครั้ง", cash_income: "เงินสด" };
+  var rows = rev.items.length
+    ? rev.items.map(function(i) {
+        return '<div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #EEF0E8">' +
+          '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:600">' +
+            esc(i.student || i.note || (kindLabel[i.kind] || i.kind)) + '</div>' +
+          '<div class="muted" style="font-size:11px;margin-top:1px">' +
+            thDate(i.at, { day: "numeric", month: "short" }) + " · " + (kindLabel[i.kind] || i.kind) +
+            (i.note && i.student ? " · " + esc(i.note) : "") + '</div></div>' +
+          '<span class="chip ' + (i.method === "cash" ? "chip-wait" : "chip-ok") + '" style="font-size:11px">' +
+            (i.method === "cash" ? "สด" : "โอน") + '</span>' +
+          '<div style="font-size:14px;font-weight:700;flex-shrink:0">฿' + Number(i.amount).toLocaleString() + '</div></div>';
+      }).join("")
+    : '<div class="muted center" style="padding:20px;font-size:14px">ยังไม่มีรายการในเดือนนี้</div>';
+  $("sheet").innerHTML = '<div class="handle"></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+      '<div style="font-size:16px;font-weight:700">รายการรับเงิน</div>' +
+      '<div class="muted" style="font-size:13px">' + thDate(rev.month + "-15T12:00:00+07:00", { month: "long", year: "numeric" }) + ' · ฿' + Number(rev.total).toLocaleString() + '</div></div>' +
+    '<div style="max-height:55vh;overflow-y:auto;margin-top:8px">' + rows + '</div>';
+  $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
 function coShiftRevMonth(n) {
   var d = new Date(S.revMonth + "-15T12:00:00+07:00");
