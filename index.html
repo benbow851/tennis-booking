@@ -237,6 +237,15 @@ function loadMe(cb) {
     S.me = res;
     if (S.mode === "auto") S.mode = res.is_coach ? "coach" : "student";
     if (!S.me.is_coach) S.mode = "student";
+    // deep link จาก Rich Menu: ?tab=book|mine|buy|profile
+    if (!S._deeplinked) {
+      S._deeplinked = true;
+      var qt = new URLSearchParams(location.search).get("tab");
+      if (qt && S.mode === "student") {
+        if (qt === "buy") { S.tab = "home"; setTimeout(openBuySheet, 400); }
+        else if (["home", "book", "mine", "profile"].indexOf(qt) >= 0) S.tab = qt;
+      }
+    }
     renderNav();
     go(S.tab || (S.mode === "coach" ? "co-today" : "home"));
     if (cb) cb();
