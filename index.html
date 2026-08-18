@@ -646,8 +646,21 @@ function renderCoToday() {
       '<span style="font-size:14px;font-weight:600;flex-grow:1;text-align:center">' + thDate(S.coachDate + "T12:00:00+07:00", { weekday: "long", day: "numeric", month: "long" }) + '</span>' +
       '<button class="btn btn-sm" style="background:rgba(255,255,255,.1);color:#fff;border:none" onclick="coShiftDay(1)">▶</button></div></div>' +
     '<div id="co-today-body"><div class="spin" style="margin:40px auto"></div></div>';
-  Promise.all([api("/coach/pending"), api("/coach/day?date=" + S.coachDate)]).then(function(rs) {
-    var pending = rs[0], day = rs[1], html = "";
+  if (!S.revMonth) S.revMonth = dateStr(new Date()).slice(0, 7);
+  Promise.all([api("/coach/pending"), api("/coach/day?date=" + S.coachDate), api("/coach/revenue?month=" + S.revMonth)]).then(function(rs) {
+    var pending = rs[0], day = rs[1], rev = rs[2], html = "";
+    if (rev.ok) {
+      html += '<div class="section"><div class="card">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<span class="muted" style="font-size:13px;font-weight:700">รายได้ ' + thDate(rev.month + "-15T12:00:00+07:00", { month: "long", year: "numeric" }) + '</span>' +
+          '<span style="display:flex;gap:6px">' +
+            '<button class="btn btn-ghost btn-sm" style="padding:4px 12px" onclick="coShiftRevMonth(-1)">◀</button>' +
+            '<button class="btn btn-ghost btn-sm" style="padding:4px 12px" onclick="coShiftRevMonth(1)">▶</button></span></div>' +
+        '<div style="font-size:30px;font-weight:700;margin-top:4px">฿' + Number(rev.total).toLocaleString() + '</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">' +
+          'โอน ฿' + Number(rev.transfer).toLocaleString() + ' · เงินสด ฿' + Number(rev.cash).toLocaleString() + '<br>' +
+          'คอร์ส ฿' + Number(rev.package_total).toLocaleString() + ' · รายครั้ง ฿' + Number(rev.per_session_total).toLocaleString() + ' · ' + rev.count + ' รายการ</div></div></div>';
+    }
     if (pending.ok && (pending.bookings.length || pending.payments.length)) {
       html += '<div class="section"><div class="section-title">รอดำเนินการ <span class="chip" style="background:var(--clay);color:#fff">' + (pending.bookings.length + pending.payments.length) + '</span></div>';
       html += pending.bookings.map(function(b) {
@@ -689,6 +702,12 @@ function renderCoToday() {
     html += '</div>';
     $("co-today-body").innerHTML = html;
   });
+}
+function coShiftRevMonth(n) {
+  var d = new Date(S.revMonth + "-15T12:00:00+07:00");
+  d.setMonth(d.getMonth() + n);
+  S.revMonth = dateStr(d).slice(0, 7);
+  renderCoToday();
 }
 function coShiftDay(n) {
   var d = new Date(S.coachDate + "T12:00:00+07:00");
@@ -819,32 +838,72 @@ function renderCoStudents() {
       return;
     }
     $("co-st-list").innerHTML = res.students.map(function(s) {
-      var badge = "", extra = "";
+      var badge = "", bar = "", low = false;
       if (s.package) {
-        var low = s.package.remaining <= 2;
+        low = s.package.remaining <= 2;
         if (low) badge = '<span class="chip chip-wait">ใกล้หมดคอร์ส</span>';
         else if (s.package.used === 0) badge = '<span class="chip chip-ok">คอร์สใหม่</span>';
         var pct = Math.round(s.package.used / s.package.total * 100);
-        extra = '<div style="display:flex;align-items:center;gap:12px;margin-top:12px">' +
-          '<div class="bar"><div style="width:' + pct + '%;' + (low ? "background:#D75F33" : "") + '"></div></div>' +
-          (low ? '<button class="btn btn-ball btn-sm" style="font-size:12px" onclick="coNudge(\'' + s.id + '\')">ชวนต่อคอร์ส</button>' : '') + '</div>';
+        bar = '<div class="bar" style="margin-top:12px"><div style="width:' + pct + '%;' + (low ? "background:#D75F33" : "") + '"></div></div>';
       } else if (s.pending_payment) {
         badge = '<span class="chip chip-wait">รอตรวจการชำระ</span>';
       } else {
         badge = '<span class="chip chip-grey">รายครั้ง</span>';
+      }
+      if (s.credits > 0) {
+        badge += '<span class="chip" style="background:var(--ball);color:var(--ball-ink)">เครดิต ' + s.credits + '</span>';
       }
       var sub = s.package
         ? "เหลือ " + s.package.remaining + "/" + s.package.total + " ครั้ง"
         : "เรียนแล้ว " + s.lessons_done + " ครั้ง";
       if (s.next_lesson) sub += " · คลาสถัดไป " + thDate(s.next_lesson, { weekday: "short", day: "numeric", month: "short" });
       else if (s.last_lesson) sub += " · ล่าสุด " + thDate(s.last_lesson, { weekday: "short", day: "numeric", month: "short" });
+      var actions = '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">' +
+        (low ? '<button class="btn btn-ball btn-sm" style="font-size:12px" onclick="coNudge(\'' + s.id + '\')">ชวนต่อคอร์ส</button>' : '') +
+        '<button class="btn btn-ghost btn-sm" style="font-size:12px" onclick="openCreditSheet(\'' + s.id + '\',\'' + esc(s.name) + '\')">+ เครดิต</button></div>';
       return '<div class="card" style="margin-bottom:10px"><div class="listrow">' +
         '<div class="avatar">' + (s.picture ? '<img src="' + esc(s.picture) + '" alt="">' : esc((s.name || "?").charAt(0))) + '</div>' +
         '<div style="flex-grow:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
           '<span style="font-size:15px;font-weight:700">' + esc(s.name) + '</span>' + badge + '</div>' +
-        '<div class="muted" style="font-size:12px;margin-top:2px">' + sub + '</div></div></div>' + extra + '</div>';
+        '<div class="muted" style="font-size:12px;margin-top:2px">' + sub + '</div></div></div>' + bar + actions + '</div>';
     }).join("");
   });
+}
+function openCreditSheet(id, name) {
+  S._credSid = id; S._credName = name; S._credN = 1;
+  renderCreditSheet("");
+}
+function renderCreditSheet(amountVal) {
+  var counts = [1, 2, 3, 5, 10];
+  var html = '<div class="handle"></div>' +
+    '<div style="font-size:16px;font-weight:700">เพิ่มเครดิตให้ ' + esc(S._credName) + '</div>' +
+    '<div class="muted" style="font-size:12px;margin-top:4px">สำหรับรับเงินสด / คลาสทดลอง — นักเรียนเห็นเป็นเครดิต ไม่เห็นยอดเงิน</div>' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">จำนวนครั้ง</div>' +
+    '<div style="display:flex;gap:8px;margin-top:8px">' + counts.map(function(n) {
+      return '<button class="btn btn-ghost btn-sm" style="padding:10px 18px;font-size:15px;' +
+        (S._credN === n ? 'border:1.5px solid var(--green2);background:#F0F6F1;font-weight:700;' : '') +
+        '" onclick="setCredN(' + n + ')">' + n + '</button>';
+    }).join("") + '</div>' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">ยอดเงินสดที่รับ (บาท) — ไม่บังคับ</div>' +
+    '<input id="cred-amount" type="number" inputmode="numeric" value="' + esc(amountVal) + '" placeholder="เว้นว่าง = ฟรี/ทดลอง (ไม่บันทึกยอด)" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
+    '<div class="muted" style="font-size:12px;margin-top:8px">ยอดที่กรอกจะรวมอยู่ในสรุปรายได้ประจำเดือน (เงินสด)</div>' +
+    '<button class="btn btn-primary" style="margin-top:14px" onclick="saveCredit()">เพิ่มเครดิต ' + S._credN + ' ครั้ง</button>';
+  $("sheet").innerHTML = html;
+  $("sheet").classList.add("open"); $("overlay").classList.add("open");
+}
+function setCredN(n) {
+  var v = $("cred-amount") ? $("cred-amount").value : "";
+  S._credN = n;
+  renderCreditSheet(v);
+}
+function saveCredit() {
+  var amt = parseFloat($("cred-amount").value) || 0;
+  closeSheet();
+  api("/coach/credits", { method: "POST", body: JSON.stringify({ student_id: S._credSid, count: S._credN, amount: amt }) })
+    .then(function(res) {
+      if (res.ok) { toast("เพิ่มเครดิต " + res.added + " ครั้งให้ " + S._credName + " แล้ว"); renderCoStudents(); }
+      else toast("เพิ่มเครดิตไม่สำเร็จ");
+    });
 }
 function coNudge(id) {
   api("/coach/nudge", { method: "POST", body: JSON.stringify({ student_id: id }) }).then(function(res) {
