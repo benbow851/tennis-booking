@@ -324,7 +324,10 @@ function renderHome() {
   } else if (pkg.pending_payment) {
     html += '<div class="card" style="border-radius:20px;box-shadow:0 8px 24px rgba(14,65,48,.14)">' +
       '<div style="font-weight:700;font-size:15px">คอร์ส 10 ครั้ง — รอตรวจสอบการชำระเงิน</div>' +
-      '<div class="muted" style="font-size:13px;margin-top:6px;line-height:1.6">โอน ฿' + Number(pkg.pending_payment.price).toLocaleString() + ' แล้วส่งสลิปในแชท LINE ของโค้ช<br>โค้ชจะยืนยันภายใน 24 ชม.</div></div>';
+      '<div class="muted" style="font-size:13px;margin-top:6px;line-height:1.6">โอน ฿' + Number(pkg.pending_payment.price).toLocaleString() + ' แล้วส่งสลิปในแชท LINE ของโค้ช<br>โค้ชจะยืนยันภายใน 24 ชม.</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+        '<button class="btn btn-ball btn-sm" onclick="openPaySheet(' + Number(pkg.pending_payment.price) + ')">ดู QR ชำระเงิน</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="openChat()">เปิดแชทส่งสลิป</button></div></div>';
   } else {
     html += '<div class="card" style="border-radius:20px;box-shadow:0 8px 24px rgba(14,65,48,.14)">' +
       '<div style="font-weight:700;font-size:15px">ยังไม่มีคอร์สเรียน</div>' +
@@ -422,7 +425,10 @@ function openBookSheet() {
   if (canPkg) {
     html += payOpt("package", "ใช้สิทธิ์คอร์ส", "เหลือ " + pkg.remaining + " ครั้ง · หลังจองจะเหลือ " + (pkg.remaining - 1) + " ครั้ง", "฿0");
   }
-  html += payOpt("per_session", "ชำระรายครั้ง", "ไม่รวมค่าเช่าสนาม", "฿" + S.cfg.price_per_session) + '</div>' +
+  var credit = S.me.per_session_credit || 0;
+  html += payOpt("per_session", "ชำระรายครั้ง",
+    credit > 0 ? "มีเครดิต " + credit + " ครั้ง — ใช้ได้เลยไม่ต้องชำระเพิ่ม" : "ไม่รวมค่าเช่าสนาม",
+    credit > 0 ? "฿0" : "฿" + S.cfg.price_per_session) + '</div>' +
     '<button class="btn btn-primary" style="margin-top:14px" onclick="confirmBooking()">ยืนยันการจอง</button>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
@@ -435,6 +441,21 @@ function payOpt(val, title, sub, price) {
 }
 function setPay(v) { S.pay = v; openBookSheet(); }
 function closeSheet() { $("sheet").classList.remove("open"); $("overlay").classList.remove("open"); }
+function openChat() {
+  if (S.cfg.oa_id) location.href = "https://line.me/R/ti/p/" + encodeURIComponent(S.cfg.oa_id);
+}
+function openPaySheet(amount) {
+  var c = S.cfg;
+  var html = '<div class="handle"></div>' +
+    '<div style="font-size:16px;font-weight:700;text-align:center">ชำระค่าเรียน ฿' + Number(amount).toLocaleString() + '</div>' +
+    '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:12px">' +
+      '<img src="./qr.jpg" alt="PromptPay QR" onerror="this.parentNode.removeChild(this)" style="width:200px;border-radius:12px;border:1px solid var(--line)">' +
+      (c.promptpay_id ? '<div style="font-size:13px;font-weight:700">' + esc(c.promptpay_id) + '</div>' : '') +
+      '<div class="muted" style="font-size:12px;text-align:center;line-height:1.7">สแกนจ่ายแล้วส่งสลิปในแชท Coach Ben<br>โค้ชตรวจสลิปแล้วสถานะจะเปลี่ยนเป็น "ชำระแล้ว"</div></div>' +
+    '<button class="btn btn-ball" style="margin-top:14px" onclick="openChat()">เปิดแชทส่งสลิป</button>';
+  $("sheet").innerHTML = html;
+  $("sheet").classList.add("open"); $("overlay").classList.add("open");
+}
 function confirmBooking() {
   var s = S.selSlot; if (!s) return;
   closeSheet();
@@ -443,6 +464,7 @@ function confirmBooking() {
       if (res.ok) {
         var msg = "ส่งคำขอจองแล้ว รอโค้ชยืนยัน";
         if (S.pay === "package" && res.remaining != null) msg += " · สิทธิ์คงเหลือ " + res.remaining + " ครั้ง";
+        else if (S.pay === "per_session") msg += res.credit_used ? " · ใช้เครดิตแล้ว ไม่ต้องชำระเพิ่ม" : " · กดชำระเงินได้ในแท็บ ของฉัน";
         toast(msg);
         S.selSlot = null;
         loadMe(function(){ go("mine"); });
@@ -480,6 +502,9 @@ function renderMine() {
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:700">' + thDate(b.starts_at, { weekday: "long" }) + ' · ' + slotLabel(b) + '</div>' +
           '<div class="muted" style="font-size:12px;margin-top:1px">' + payLabel(b) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
+          (b.payment_type === "per_session" && b.payment_status !== "verified"
+            ? '<button class="btn btn-ball btn-sm" style="font-size:12px;padding:5px 12px" onclick="openPaySheet(' + S.cfg.price_per_session + ')">ชำระเงิน</button>'
+            : '') +
           '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="cancelBooking(\'' + b.id + '\')">ยกเลิก</button></div></div>';
       }).join("");
     } else {
@@ -534,7 +559,8 @@ function openBuySheet() {
         '<div class="muted" style="font-size:13px;line-height:1.7">' +
           (c.promptpay_id ? 'PromptPay: <b style="color:var(--ink)">' + esc(c.promptpay_id) + '</b><br>' : '') +
           'สแกน/โอนแล้วส่งสลิปในแชท LINE<br>โค้ชยืนยันภายใน 24 ชม. คอร์สจะพร้อมใช้</div></div></div>' +
-    '<button class="btn btn-primary" style="margin-top:14px" onclick="buyPackage()">ยืนยันซื้อคอร์ส ' + c.package_sessions + ' ครั้ง · ฿' + Number(c.price_package).toLocaleString() + '</button>';
+    '<button class="btn btn-primary" style="margin-top:14px" onclick="buyPackage()">ยืนยันซื้อคอร์ส ' + c.package_sessions + ' ครั้ง · ฿' + Number(c.price_package).toLocaleString() + '</button>' +
+    '<button class="btn btn-ghost" style="margin-top:10px" onclick="openChat()">เปิดแชทส่งสลิป</button>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
@@ -629,7 +655,9 @@ function renderCoToday() {
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:700">' + esc(b.student) + '</div>' +
           '<div class="muted" style="font-size:12px;margin-top:1px">' + (b.payment_type === "package" ? "คอร์ส · ครั้งที่ " + (b.session_number || "-") : "รายครั้ง ฿" + S.cfg.price_per_session) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
-          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="coSetCourt(\'' + b.id + '\',\'' + esc(b.court || "") + '\')">' + (b.court ? "แก้สนาม" : "ระบุสนาม") + '</button></div></div></div>';
+          '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="coSetCourt(\'' + b.id + '\',\'' + esc(b.court || "") + '\')">' + (b.court ? "แก้สนาม" : "ระบุสนาม") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px;color:var(--clay);border-color:#E5C0AC" onclick="coCancelClass(\'' + b.id + '\')">ยกเลิก</button></div></div></div></div>';
       }).join("");
     } else {
       html += '<div class="card muted center" style="padding:22px;font-size:14px">ไม่มีคลาสในวันนี้</div>';
@@ -651,6 +679,13 @@ function coSetCourt(id, current) {
       if (res.ok) { toast(court.trim() ? "บันทึกสนามแล้ว แจ้งนักเรียนทาง LINE แล้ว" : "ลบชื่อสนามแล้ว"); renderCoToday(); }
       else toast("บันทึกไม่สำเร็จ");
     });
+}
+function coCancelClass(id) {
+  if (!confirm("ยกเลิกคลาสนี้? สิทธิ์คอร์สหรือยอดที่ชำระแล้วจะถูกคืน/เก็บเป็นเครดิตให้นักเรียนอัตโนมัติ และระบบจะแจ้งนักเรียนทาง LINE")) return;
+  api("/coach/bookings/" + id + "/reject", { method: "POST" }).then(function(res) {
+    if (res.ok) { toast("ยกเลิกคลาสแล้ว แจ้งนักเรียนทาง LINE แล้ว"); renderCoToday(); }
+    else toast("ทำรายการไม่สำเร็จ");
+  });
 }
 function coBooking(id, action) {
   if (action === "reject" && !confirm("ปฏิเสธการจองนี้? สิทธิ์คอร์สจะถูกคืนให้นักเรียน")) return;
@@ -687,7 +722,7 @@ function renderCoSlots() {
     '<div class="section"><div id="co-slot-grid"><div class="spin" style="margin:30px auto"></div></div>' +
     '<div class="muted" style="font-size:12px;margin-top:12px">ช่องที่มีคนจองแล้วต้องยกเลิกการจองก่อนถึงจะปิดได้</div></div>' +
     '<div class="section" style="display:flex;gap:10px;padding-bottom:20px">' +
-      '<button class="btn btn-ghost" style="flex:1;font-size:14px;color:var(--green2)" onclick="coDay(\'open_day\')">เปิดรับทั้งวัน</button>' +
+      '<button class="btn btn-ghost" style="flex:1;font-size:14px;color:var(--green2)" onclick="coDay(\'open_day\')">เปิดตามตารางปกติ</button>' +
       '<button class="btn btn-ghost" style="flex:1;font-size:14px;color:var(--clay);border-color:#E5C0AC" onclick="coDay(\'close_day\')">ปิดทั้งวัน · ติดธุระ</button></div>';
   loadCoachDay();
 }
