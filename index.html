@@ -330,9 +330,31 @@ function renderHome() {
         '<button class="btn btn-ghost btn-sm" onclick="openChat()">เปิดแชทส่งสลิป</button></div></div>';
   } else {
     html += '<div class="card" style="border-radius:20px;box-shadow:0 8px 24px rgba(14,65,48,.14)">' +
-      '<div style="font-weight:700;font-size:15px">ยังไม่มีคอร์สเรียน</div>' +
-      '<div class="muted" style="font-size:13px;margin:6px 0 12px">คอร์ส ' + S.cfg.package_sessions + ' ครั้ง ฿' + Number(S.cfg.price_package).toLocaleString() + ' (เฉลี่ย ฿' + Math.round(S.cfg.price_package / S.cfg.package_sessions) + '/ครั้ง) หรือจองรายครั้ง ฿' + S.cfg.price_per_session + '</div>' +
-      '<button class="btn btn-ball" onclick="openBuySheet()">ซื้อคอร์ส ' + S.cfg.package_sessions + ' ครั้ง</button></div>';
+      '<div style="font-weight:700;font-size:15px">ยังไม่มีคอร์ส</div>' +
+      '<div class="muted" style="font-size:13px;margin:6px 0 12px">คอร์สเรียน ฿' + Number(S.cfg.price_package).toLocaleString() + ' · คอร์ส Knocker ฿' + Number(S.cfg.knocker_price_package).toLocaleString() + ' (10 ครั้ง) หรือจองรายครั้งก็ได้</div>' +
+      '<button class="btn btn-ball" onclick="openBuySheet()">ดูคอร์สทั้งหมด</button></div>';
+  }
+  var kp = S.me.knocker_package || {};
+  if (kp.active) {
+    var lowK = kp.active.remaining <= 2;
+    html += '<div class="card" style="border-radius:20px;margin-top:12px;box-shadow:0 8px 24px rgba(14,65,48,.14)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span class="muted" style="font-size:13px;font-weight:500">คอร์ส Knocker ' + kp.active.total + ' ครั้ง</span>' +
+        (lowK ? '<span class="chip chip-wait">ใกล้หมดคอร์ส</span>' : '<span class="chip chip-ok">ใช้งานอยู่</span>') + '</div>' +
+      '<div style="display:flex;align-items:baseline;gap:6px;margin-top:8px">' +
+        '<span style="font-size:34px;font-weight:700;line-height:1">' + kp.active.remaining + '</span>' +
+        '<span class="muted" style="font-size:14px">/ ' + kp.active.total + ' ครั้ง คงเหลือ</span></div>' +
+      '<div style="margin-top:10px">' + ballDots(kp.active.remaining, kp.active.total, false) + '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #EEF0E8;margin-top:12px;padding-top:10px">' +
+        '<span class="muted" style="font-size:12px">ใช้ไปแล้ว ' + kp.active.used + ' ครั้ง</span>' +
+        (lowK ? '<button class="btn btn-ball btn-sm" onclick="openBuySheet()">ซื้อคอร์สต่อ</button>' : '') + '</div></div>';
+  } else if (kp.pending_payment) {
+    html += '<div class="card" style="border-radius:20px;margin-top:12px;box-shadow:0 8px 24px rgba(14,65,48,.14)">' +
+      '<div style="font-weight:700;font-size:15px">คอร์ส Knocker — รอตรวจสอบการชำระเงิน</div>' +
+      '<div class="muted" style="font-size:13px;margin-top:6px;line-height:1.6">โอน ฿' + Number(kp.pending_payment.price).toLocaleString() + ' แล้วส่งสลิปในแชท LINE ของโค้ช</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+        '<button class="btn btn-ball btn-sm" onclick="openPaySheet(' + Number(kp.pending_payment.price) + ')">ดู QR ชำระเงิน</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="openChat()">เปิดแชทส่งสลิป</button></div></div>';
   }
   html += creditCard();
   html += '</div>';
@@ -343,7 +365,7 @@ function renderHome() {
     var b = me.upcoming[0];
     html += '<div class="card listrow">' + dateBox(b.starts_at) +
       '<div style="flex-grow:1;min-width:0"><div style="font-size:15px;font-weight:700">' + thDate(b.starts_at, { weekday: "long" }) + ' · ' + slotLabel(b) + '</div>' +
-      '<div class="muted" style="font-size:13px;margin-top:2px">' + esc(b.court || S.cfg.court_name || (b.payment_type === "package" ? "ใช้สิทธิ์คอร์ส" : "รายครั้ง")) + '</div></div>' +
+      '<div class="muted" style="font-size:13px;margin-top:2px">' + (b.service === "knocker" ? "Knocker · " : "") + esc(b.court || S.cfg.court_name || (b.payment_type === "package" ? "ใช้สิทธิ์คอร์ส" : "รายครั้ง")) + '</div></div>' +
       statusChip(b.status) + '</div>';
   } else {
     html += '<div class="card muted center" style="font-size:14px;padding:22px">ยังไม่มีคลาสที่จองไว้ — กดจองคลาสได้เลย</div>';
@@ -412,26 +434,44 @@ function loadSlots() {
 }
 function pickSlot(s) {
   S.selSlot = s;
-  S.pay = (S.me.package.active && S.me.package.active.remaining > 0) ? "package" : "per_session";
-  loadSlots(); openBookSheet();
+  loadSlots();
+  setBookService(S.bookService || "lesson");
+}
+function setBookService(sv) {
+  S.bookService = sv;
+  var pkgA = sv === "knocker" ? (S.me.knocker_package || {}).active : S.me.package.active;
+  S.pay = (pkgA && pkgA.remaining > 0) ? "package" : "per_session";
+  openBookSheet();
 }
 function openBookSheet() {
-  var s = S.selSlot, pkg = S.me.package.active;
+  var s = S.selSlot;
+  var isK = S.bookService === "knocker";
+  var pkg = isK ? (S.me.knocker_package || {}).active : S.me.package.active;
+  var credit = isK ? (S.me.knocker_credit || 0) : (S.me.per_session_credit || 0);
+  var per = isK ? S.cfg.knocker_price_per_session : S.cfg.price_per_session;
   var canPkg = pkg && pkg.remaining > 0;
+  function svcBtn(sv, label) {
+    var sel = (S.bookService || "lesson") === sv;
+    return '<button style="flex:1;border-radius:12px;padding:11px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;' +
+      (sel ? 'background:var(--green);color:#fff;border:none;' : 'background:#fff;color:var(--ink);border:1px solid var(--line);') +
+      '" onclick="setBookService(\'' + sv + '\')">' + label + '</button>';
+  }
   var html = '<div class="handle"></div>' +
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<span style="font-size:15px;font-weight:700">' + thDate(s.starts_at, { weekday: "long", day: "numeric", month: "short", year: "numeric" }) + '</span>' +
       '<span style="font-size:15px;font-weight:700;color:var(--green2)">' + slotLabel(s) + '</span></div>' +
-    '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">';
+    '<div style="display:flex;gap:8px;margin-top:14px">' +
+      svcBtn("lesson", "เรียนกับโค้ช") + svcBtn("knocker", "Knocker คู่ซ้อม") + '</div>' +
+    '<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">';
   if (canPkg) {
-    html += payOpt("package", "ใช้สิทธิ์คอร์ส", "เหลือ " + pkg.remaining + " ครั้ง · หลังจองจะเหลือ " + (pkg.remaining - 1) + " ครั้ง", "฿0");
+    html += payOpt("package", "ใช้สิทธิ์คอร์ส" + (isK ? " Knocker" : "เรียน"),
+      "เหลือ " + pkg.remaining + " ครั้ง · หลังจองจะเหลือ " + (pkg.remaining - 1) + " ครั้ง", "฿0");
   }
-  var credit = S.me.per_session_credit || 0;
   html += payOpt("per_session", "ชำระรายครั้ง",
     credit > 0 ? "มีเครดิต " + credit + " ครั้ง — ใช้ได้เลยไม่ต้องชำระเพิ่ม" : "ไม่รวมค่าเช่าสนาม",
-    credit > 0 ? "฿0" : "฿" + S.cfg.price_per_session) + '</div>' +
-    '<button class="btn btn-primary" style="margin-top:14px" onclick="confirmBooking()">ยืนยันการจอง</button>' +
-    '<div class="muted" style="font-size:12px;text-align:center;margin-top:10px">ยกเลิกฟรีได้ถึง 2 ชั่วโมงก่อนเวลาเรียน — ช้ากว่านั้นไม่คืนสิทธิ์/เครดิต</div>';
+    credit > 0 ? "฿0" : "฿" + per) + '</div>' +
+    '<button class="btn btn-primary" style="margin-top:14px" onclick="confirmBooking()">ยืนยันการจอง' + (isK ? " Knocker" : "") + '</button>' +
+    '<div class="muted" style="font-size:12px;text-align:center;margin-top:10px">ยกเลิกฟรีได้ถึง 2 ชั่วโมงก่อนเวลานัด — ช้ากว่านั้นไม่คืนสิทธิ์/เครดิต</div>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
@@ -461,7 +501,7 @@ function openPaySheet(amount) {
 function confirmBooking() {
   var s = S.selSlot; if (!s) return;
   closeSheet();
-  api("/bookings", { method: "POST", body: JSON.stringify({ slot_id: s.id, payment_type: S.pay }) })
+  api("/bookings", { method: "POST", body: JSON.stringify({ slot_id: s.id, payment_type: S.pay, service: S.bookService || "lesson" }) })
     .then(function(res) {
       if (res.ok) {
         var msg = "ส่งคำขอจองแล้ว รอโค้ชยืนยัน";
@@ -497,7 +537,20 @@ function renderMine() {
           (pkg.active.remaining <= 2 ? '<button class="btn btn-ball btn-sm" onclick="openBuySheet()">ซื้อคอร์สต่อ</button>' : '') +
         '</div></div></div>';
     }
-    if (S.me.per_session_credit > 0) {
+    var kpm = S.me.knocker_package || {};
+    if (kpm.active) {
+      html += '<div style="margin:12px 20px 0"><div style="background:var(--green);border-radius:20px;padding:18px;position:relative;overflow:hidden;color:#fff">' + COURT_SVG +
+        '<div style="font-size:13px;color:#9DBFAE;position:relative">สิทธิ์คงเหลือ คอร์ส Knocker</div>' +
+        '<div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;position:relative">' +
+          '<span style="font-size:40px;font-weight:700;color:var(--ball);line-height:1">' + kpm.active.remaining + '</span>' +
+          '<span style="font-size:15px;opacity:.75">/ ' + kpm.active.total + ' ครั้ง</span></div>' +
+        '<div style="margin-top:10px;position:relative">' + ballDots(kpm.active.remaining, kpm.active.total, true) + '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;position:relative">' +
+          '<span style="font-size:12px;opacity:.75">ใช้ไปแล้ว ' + kpm.active.used + ' ครั้ง</span>' +
+          (kpm.active.remaining <= 2 ? '<button class="btn btn-ball btn-sm" onclick="openBuySheet()">ซื้อคอร์สต่อ</button>' : '') +
+        '</div></div></div>';
+    }
+    if ((S.me.per_session_credit || 0) > 0 || (S.me.knocker_credit || 0) > 0) {
       html += '<div style="margin:0 20px">' + creditCard() + '</div>';
     }
     html += '<div class="section"><div class="section-title">กำลังจะถึง</div>';
@@ -508,7 +561,7 @@ function renderMine() {
           '<div class="muted" style="font-size:12px;margin-top:1px">' + payLabel(b) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
           (b.payment_type === "per_session" && b.payment_status !== "verified"
-            ? '<button class="btn btn-ball btn-sm" style="font-size:12px;padding:5px 12px" onclick="openPaySheet(' + S.cfg.price_per_session + ')">ชำระเงิน</button>'
+            ? '<button class="btn btn-ball btn-sm" style="font-size:12px;padding:5px 12px" onclick="openPaySheet(' + (b.service === "knocker" ? S.cfg.knocker_price_per_session : S.cfg.price_per_session) + ')">ชำระเงิน</button>'
             : '') +
           '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="cancelBooking(\'' + b.id + '\',\'' + b.starts_at + '\')">ยกเลิก</button></div></div>';
       }).join("");
@@ -534,9 +587,11 @@ function renderMine() {
   });
 }
 function payLabel(b) {
-  if (b.payment_type === "package") return "ใช้สิทธิ์คอร์ส" + (b.session_number ? " · ครั้งที่ " + b.session_number : "");
-  var pay = b.payment_status === "verified" ? "ชำระแล้ว" : "รอชำระ ฿" + S.cfg.price_per_session;
-  return "รายครั้ง · " + pay;
+  var svc = b.service === "knocker" ? "Knocker · " : "";
+  var per = b.service === "knocker" ? S.cfg.knocker_price_per_session : S.cfg.price_per_session;
+  if (b.payment_type === "package") return svc + "ใช้สิทธิ์คอร์ส" + (b.session_number ? " · ครั้งที่ " + b.session_number : "");
+  var pay = b.payment_status === "verified" ? "ชำระแล้ว" : "รอชำระ ฿" + per;
+  return svc + "รายครั้ง · " + pay;
 }
 function cancelBooking(id, startsAt) {
   var hoursLeft = (new Date(startsAt).getTime() - Date.now()) / 3600000;
@@ -555,44 +610,64 @@ function cancelBooking(id, startsAt) {
   });
 }
 function creditCard() {
-  var n = S.me.per_session_credit || 0;
-  if (!n) return "";
+  var n1 = S.me.per_session_credit || 0;
+  var n2 = S.me.knocker_credit || 0;
+  if (!n1 && !n2) return "";
+  var rows = "";
+  if (n1) {
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">' +
+      '<span style="font-size:13px;font-weight:700">เครดิตเรียน</span><span style="font-size:13px;font-weight:700">' + n1 + ' ครั้ง</span></div>' +
+      '<div style="margin-top:6px">' + ballDots(n1, n1, false) + '</div>';
+  }
+  if (n2) {
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">' +
+      '<span style="font-size:13px;font-weight:700">เครดิต Knocker</span><span style="font-size:13px;font-weight:700">' + n2 + ' ครั้ง</span></div>' +
+      '<div style="margin-top:6px">' + ballDots(n2, n2, false) + '</div>';
+  }
   return '<div class="card" style="margin-top:12px;box-shadow:0 0 0 1.5px var(--ball)">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center">' +
-      '<div class="muted" style="font-size:13px;font-weight:500">เครดิตรายครั้ง (จากคลาสที่ถูกยกเลิก)</div>' +
-      '<div style="font-size:15px;font-weight:700">' + n + ' ครั้ง</div></div>' +
-    '<div style="margin-top:10px">' + ballDots(n, n, false) + '</div>' +
-    '<div class="muted" style="font-size:12px;margin-top:10px">ระบบจะใช้เครดิตให้อัตโนมัติเมื่อจองคลาสรายครั้งครั้งถัดไป — ไม่ต้องชำระเพิ่ม</div></div>';
+    '<div class="muted" style="font-size:13px;font-weight:500">เครดิตรายครั้งของคุณ</div>' + rows +
+    '<div class="muted" style="font-size:12px;margin-top:10px">ระบบจะใช้เครดิตให้อัตโนมัติเมื่อจองประเภทเดียวกันครั้งถัดไป — ไม่ต้องชำระเพิ่ม</div></div>';
 }
 
 // ---------- student: buy ----------
+function courseCard(title, sub, price, avg, save, buyLabel, service, ring) {
+  return '<div style="background:var(--green);border-radius:18px;padding:16px;color:#fff;position:relative;overflow:hidden;box-shadow:0 0 0 2px ' + ring + '">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;position:relative;gap:8px">' +
+      '<span style="font-size:15px;font-weight:700">' + title + '</span>' +
+      '<span class="chip" style="background:' + ring + ';color:#12301F;flex-shrink:0">ประหยัด ฿' + Number(save).toLocaleString() + '</span></div>' +
+    (sub ? '<div style="font-size:12px;opacity:.8;margin-top:3px;position:relative">' + sub + '</div>' : '') +
+    '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:8px;position:relative">' +
+      '<span><span style="font-size:30px;font-weight:700;color:var(--ball)">฿' + Number(price).toLocaleString() + '</span>' +
+      '<span style="font-size:12px;opacity:.75"> เฉลี่ย ฿' + avg + '/ครั้ง</span></span>' +
+      '<button class="btn btn-ball btn-sm" style="font-size:13px" onclick="buyPackage(\'' + service + '\')">' + buyLabel + '</button></div></div>';
+}
 function openBuySheet() {
   var c = S.cfg;
   var html = '<div class="handle"></div>' +
-    '<div style="background:var(--green);border-radius:18px;padding:18px;color:#fff;position:relative;overflow:hidden;box-shadow:0 0 0 2px var(--ball)">' + COURT_SVG +
-      '<div style="display:flex;justify-content:space-between;align-items:center;position:relative">' +
-        '<span style="font-size:15px;font-weight:700">คอร์ส ' + c.package_sessions + ' ครั้ง</span>' +
-        '<span class="chip" style="background:var(--ball);color:var(--ball-ink)">ประหยัด ฿' + Number(c.price_per_session * c.package_sessions - c.price_package).toLocaleString() + '</span></div>' +
-      '<div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;position:relative">' +
-        '<span style="font-size:34px;font-weight:700;color:var(--ball)">฿' + Number(c.price_package).toLocaleString() + '</span>' +
-        '<span style="font-size:13px;opacity:.75">เฉลี่ย ฿' + Math.round(c.price_package / c.package_sessions) + ' / ครั้ง</span></div>' +
-      '<div style="font-size:13px;opacity:.92;margin-top:10px;position:relative">สิทธิ์ ' + c.package_sessions + ' ครั้ง พร้อมตัวนับคงเหลืออัตโนมัติ ใช้จองคลาสได้ทันทีหลังโค้ชยืนยันการชำระ</div></div>' +
-    '<div class="card" style="margin-top:12px"><div style="font-size:14px;font-weight:700">วิธีชำระเงิน</div>' +
-      '<div style="display:flex;gap:14px;align-items:center;margin-top:8px">' +
-        '<img src="./qr.jpg" alt="PromptPay QR" onerror="this.parentNode.removeChild(this)" style="width:140px;border-radius:10px;border:1px solid var(--line);flex-shrink:0">' +
-        '<div class="muted" style="font-size:13px;line-height:1.7">' +
-          (c.promptpay_id ? 'PromptPay: <b style="color:var(--ink)">' + esc(c.promptpay_id) + '</b><br>' : '') +
-          'สแกน/โอนแล้วส่งสลิปในแชท LINE<br>โค้ชยืนยันภายใน 24 ชม. คอร์สจะพร้อมใช้</div></div></div>' +
-    '<button class="btn btn-primary" style="margin-top:14px" onclick="buyPackage()">ยืนยันซื้อคอร์ส ' + c.package_sessions + ' ครั้ง · ฿' + Number(c.price_package).toLocaleString() + '</button>' +
+    '<div style="font-size:16px;font-weight:700;margin-bottom:12px">เลือกคอร์ส</div>' +
+    courseCard("คอร์สเรียน " + c.package_sessions + " ครั้ง", "เรียนกับโค้ชตัวต่อตัว",
+      c.price_package, Math.round(c.price_package / c.package_sessions),
+      c.price_per_session * c.package_sessions - c.price_package,
+      "ซื้อคอร์สเรียน", "lesson", "var(--ball)") +
+    '<div style="height:10px"></div>' +
+    courseCard("คอร์ส Knocker " + c.knocker_package_sessions + " ครั้ง", "คู่ซ้อมตีต่อเนื่อง · วางแผนเกม · พัฒนาทักษะ",
+      c.knocker_price_package, Math.round(c.knocker_price_package / c.knocker_package_sessions),
+      c.knocker_price_per_session * c.knocker_package_sessions - c.knocker_price_package,
+      "ซื้อคอร์ส Knocker", "knocker", "#E8A87C") +
+    '<div class="card" style="margin-top:12px"><div style="display:flex;gap:14px;align-items:center">' +
+      '<img src="./qr.jpg" alt="PromptPay QR" onerror="this.parentNode.removeChild(this)" style="width:110px;border-radius:10px;border:1px solid var(--line);flex-shrink:0">' +
+      '<div class="muted" style="font-size:12px;line-height:1.7">' +
+        (c.promptpay_id ? '<b style="color:var(--ink)">' + esc(c.promptpay_id) + '</b><br>' : '') +
+        'กดซื้อ → สแกนจ่าย → ส่งสลิปในแชท<br>โค้ชยืนยันแล้วคอร์สพร้อมใช้ทันที</div></div></div>' +
     '<button class="btn btn-ghost" style="margin-top:10px" onclick="openChat()">เปิดแชทส่งสลิป</button>';
   $("sheet").innerHTML = html;
   $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
-function buyPackage() {
-  api("/packages/buy", { method: "POST" }).then(function(res) {
+function buyPackage(service) {
+  api("/packages/buy", { method: "POST", body: JSON.stringify({ service: service || "lesson" }) }).then(function(res) {
     closeSheet();
     if (res.ok) {
-      toast(res.already_pending ? "มีคำสั่งซื้อรออยู่แล้ว — ส่งสลิปในแชทได้เลย" : "สั่งซื้อแล้ว! โอนเงินแล้วส่งสลิปในแชท LINE");
+      toast(res.already_pending ? "มีคำสั่งซื้อคอร์สนี้รออยู่แล้ว — ส่งสลิปในแชทได้เลย" : "สั่งซื้อแล้ว! โอน ฿" + Number(res.amount).toLocaleString() + " แล้วส่งสลิปในแชท LINE");
       loadMe();
     } else toast("สั่งซื้อไม่สำเร็จ");
   });
@@ -607,8 +682,10 @@ function renderProfile() {
       '<div style="flex-grow:1"><div style="font-size:16px;font-weight:700">' + esc(me.student.name) + '</div>' +
       '<div class="muted" style="font-size:12px;margin-top:2px">' + (me.package.active ? "นักเรียนคอร์ส · เหลือ " + me.package.active.remaining + " ครั้ง" : "นักเรียนรายครั้ง") + '</div></div></div></div>' +
     '<div class="section"><div class="card" style="padding:4px 14px">' +
-      profRow("อัตราค่าเรียนรายครั้ง", "฿" + S.cfg.price_per_session + " (ไม่รวมค่าสนาม)") +
-      profRow("คอร์ส " + S.cfg.package_sessions + " ครั้ง", "฿" + Number(S.cfg.price_package).toLocaleString()) +
+      profRow("เรียนรายครั้ง", "฿" + S.cfg.price_per_session + " (ไม่รวมค่าสนาม)") +
+      profRow("คอร์สเรียน " + S.cfg.package_sessions + " ครั้ง", "฿" + Number(S.cfg.price_package).toLocaleString()) +
+      profRow("Knocker รายครั้ง", "฿" + S.cfg.knocker_price_per_session + " (ไม่รวมค่าสนาม)") +
+      profRow("คอร์ส Knocker " + S.cfg.knocker_package_sessions + " ครั้ง", "฿" + Number(S.cfg.knocker_price_package).toLocaleString(), !S.cfg.court_name) +
       (S.cfg.court_name ? profRow("สนาม", esc(S.cfg.court_name), true) : "") + '</div></div>' +
     '<div class="section"><button class="btn btn-ball" onclick="openBuySheet()">ซื้อคอร์ส ' + S.cfg.package_sessions + ' ครั้ง</button></div>';
   if (me.is_coach) {
@@ -659,7 +736,8 @@ function renderCoToday() {
         '<div style="font-size:30px;font-weight:700;margin-top:4px">฿' + Number(rev.total).toLocaleString() + '</div>' +
         '<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">' +
           'โอน ฿' + Number(rev.transfer).toLocaleString() + ' · เงินสด ฿' + Number(rev.cash).toLocaleString() + '<br>' +
-          'คอร์ส ฿' + Number(rev.package_total).toLocaleString() + ' · รายครั้ง/สด ฿' + Number(rev.per_session_total).toLocaleString() + ' · ' + rev.count + ' รายการ</div>' +
+          'คอร์ส ฿' + Number(rev.package_total).toLocaleString() + ' · รายครั้ง/สด ฿' + Number(rev.per_session_total).toLocaleString() + '<br>' +
+          'เรียน ฿' + Number(rev.lesson_total || 0).toLocaleString() + ' · Knocker ฿' + Number(rev.knocker_total || 0).toLocaleString() + ' · ' + rev.count + ' รายการ</div>' +
         '<div style="display:flex;gap:8px;margin-top:12px">' +
           '<button class="btn btn-ball btn-sm" style="font-size:13px" onclick="openCashSheet()">+ บันทึกเงินสด</button>' +
           '<button class="btn btn-ghost btn-sm" style="font-size:13px" onclick="openRevenueList()">ดูรายการ</button></div></div></div>';
@@ -671,14 +749,14 @@ function renderCoToday() {
         return '<div class="card" style="background:#FDF4EE;border-color:#F2DCCC;margin-bottom:10px">' +
           '<div style="font-size:14px;font-weight:700">' + esc(b.student) + ' — คำขอจอง</div>' +
           '<div class="muted" style="font-size:12px;margin-top:2px">' + (b.starts_at ? thDate(b.starts_at, { weekday: "short", day: "numeric", month: "short" }) + " · " + thTime(b.starts_at) : "") +
-            ' · ' + (b.payment_type === "package" ? "คอร์ส ครั้งที่ " + b.session_number : "รายครั้ง ฿" + S.cfg.price_per_session) + '</div>' +
+            ' · ' + (b.service === "knocker" ? "Knocker " : "") + (b.payment_type === "package" ? "คอร์ส ครั้งที่ " + b.session_number : "รายครั้ง ฿" + (b.service === "knocker" ? S.cfg.knocker_price_per_session : S.cfg.price_per_session)) + '</div>' +
           '<div style="display:flex;gap:8px;margin-top:12px">' +
             '<button class="btn btn-primary" style="flex:1;padding:10px;font-size:14px" onclick="coBooking(\'' + b.id + '\',\'confirm\')">ยืนยันการจอง</button>' +
             '<button class="btn btn-ghost" style="width:92px;padding:10px;font-size:14px;color:var(--clay)" onclick="coBooking(\'' + b.id + '\',\'reject\')">ปฏิเสธ</button></div></div>';
       }).join("");
       html += pending.payments.map(function(p) {
         return '<div class="card" style="background:#FDF4EE;border-color:#F2DCCC;margin-bottom:10px">' +
-          '<div style="font-size:14px;font-weight:700">' + esc(p.student) + ' — แจ้งชำระ ' + (p.kind === "package" ? "ค่าคอร์ส" : "รายครั้ง") + ' ฿' + Number(p.amount).toLocaleString() + '</div>' +
+          '<div style="font-size:14px;font-weight:700">' + esc(p.student) + ' — แจ้งชำระ ' + (p.kind === "package" ? "ค่าคอร์ส" : "รายครั้ง") + (p.service === "knocker" ? " Knocker" : "") + ' ฿' + Number(p.amount).toLocaleString() + '</div>' +
           '<div class="muted" style="font-size:12px;margin-top:2px">เช็กสลิปในแชท LINE ก่อนกดยืนยัน</div>' +
           '<div style="display:flex;gap:8px;margin-top:12px">' +
             '<button class="btn btn-primary" style="flex:1;padding:10px;font-size:14px" onclick="coPayment(\'' + p.id + '\',\'verify\')">ยืนยันรับเงิน</button>' +
@@ -694,7 +772,7 @@ function renderCoToday() {
         return '<div style="display:flex;gap:12px;margin-bottom:10px"><div style="width:46px;font-size:13px;font-weight:700;color:#5E7267;padding-top:14px;flex-shrink:0">' + String(h.hour).padStart(2, "0") + ':00</div>' +
           '<div class="card" style="flex-grow:1;display:flex;align-items:center;gap:10px">' +
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:700">' + esc(b.student) + '</div>' +
-          '<div class="muted" style="font-size:12px;margin-top:1px">' + (b.payment_type === "package" ? "คอร์ส · ครั้งที่ " + (b.session_number || "-") : "รายครั้ง ฿" + S.cfg.price_per_session) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
+          '<div class="muted" style="font-size:12px;margin-top:1px">' + (b.service === "knocker" ? '<span style="color:#C2521F;font-weight:700">Knocker</span> · ' : "") + (b.payment_type === "package" ? "คอร์ส · ครั้งที่ " + (b.session_number || "-") : "รายครั้ง ฿" + (b.service === "knocker" ? S.cfg.knocker_price_per_session : S.cfg.price_per_session)) + (b.court ? " · " + esc(b.court) : "") + '</div></div>' +
           '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + statusChip(b.status) +
           '<div style="display:flex;gap:6px">' +
           '<button class="btn btn-ghost btn-sm" style="font-size:12px;padding:5px 12px" onclick="coSetCourt(\'' + b.id + '\',\'' + esc(b.court || "") + '\')">' + (b.court ? "แก้สนาม" : "ระบุสนาม") + '</button>' +
@@ -709,27 +787,46 @@ function renderCoToday() {
 }
 function openCashSheet() {
   api("/coach/students").then(function(res) {
-    var opts = res.ok ? res.students : [];
-    var html = '<div class="handle"></div>' +
-      '<div style="font-size:16px;font-weight:700">บันทึกเงินสด</div>' +
-      '<div class="muted" style="font-size:12px;margin-top:4px">กรอกอิสระ เช่น รับเงินสดหลังเรียน — รวมเข้าสรุปรายได้ทันที ไม่สร้างเครดิตให้นักเรียน</div>' +
-      '<div style="font-size:13px;font-weight:700;margin-top:14px">ยอดเงิน (บาท) *</div>' +
-      '<input id="cash-amount" type="number" inputmode="numeric" placeholder="เช่น 600" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
-      '<div style="font-size:13px;font-weight:700;margin-top:14px">นักเรียน (ไม่บังคับ)</div>' +
-      '<select id="cash-student" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px;background:#fff">' +
-        '<option value="">ไม่ระบุ</option>' +
-        opts.map(function(o){ return '<option value="' + o.id + '">' + esc(o.name) + '</option>'; }).join("") + '</select>' +
-      '<div style="font-size:13px;font-weight:700;margin-top:14px">โน้ต (ไม่บังคับ)</div>' +
-      '<input id="cash-note" placeholder="เช่น ค่าเรียนสดหลังคลาส 18:00" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
-      '<button class="btn btn-primary" style="margin-top:14px" onclick="saveCash()">บันทึกเงินสด</button>';
-    $("sheet").innerHTML = html;
-    $("sheet").classList.add("open"); $("overlay").classList.add("open");
+    S._cashOpts = res.ok ? res.students : [];
+    S._cashSvc = "lesson";
+    renderCashSheet("", "", "");
   });
+}
+function cashSvcBtn(sv, label) {
+  var sel = S._cashSvc === sv;
+  return '<button class="btn btn-ghost btn-sm" style="padding:10px 18px;font-size:14px;' +
+    (sel ? 'border:1.5px solid var(--green2);background:#F0F6F1;font-weight:700;' : '') +
+    '" onclick="setCashSvc(\'' + sv + '\')">' + label + '</button>';
+}
+function setCashSvc(sv) {
+  var a = $("cash-amount") ? $("cash-amount").value : "";
+  var s = $("cash-student") ? $("cash-student").value : "";
+  var n = $("cash-note") ? $("cash-note").value : "";
+  S._cashSvc = sv;
+  renderCashSheet(a, s, n);
+}
+function renderCashSheet(amountVal, studentVal, noteVal) {
+  var opts = S._cashOpts || [];
+  var html = '<div class="handle"></div>' +
+    '<div style="font-size:16px;font-weight:700">บันทึกเงินสด</div>' +
+    '<div class="muted" style="font-size:12px;margin-top:4px">กรอกอิสระ เช่น รับเงินสดหลังเรียน — รวมเข้าสรุปรายได้ทันที ไม่สร้างเครดิตให้นักเรียน</div>' +
+    '<div style="display:flex;gap:8px;margin-top:12px">' + cashSvcBtn("lesson", "เรียน") + cashSvcBtn("knocker", "Knocker") + '</div>' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">ยอดเงิน (บาท) *</div>' +
+    '<input id="cash-amount" type="number" inputmode="numeric" value="' + esc(amountVal) + '" placeholder="เช่น 600" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">นักเรียน (ไม่บังคับ)</div>' +
+    '<select id="cash-student" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px;background:#fff">' +
+      '<option value="">ไม่ระบุ</option>' +
+      opts.map(function(o){ return '<option value="' + o.id + '"' + (studentVal === o.id ? " selected" : "") + '>' + esc(o.name) + '</option>'; }).join("") + '</select>' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">โน้ต (ไม่บังคับ)</div>' +
+    '<input id="cash-note" value="' + esc(noteVal) + '" placeholder="เช่น ค่าซ้อมสดหลังคลาส 18:00" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;margin-top:8px">' +
+    '<button class="btn btn-primary" style="margin-top:14px" onclick="saveCash()">บันทึกเงินสด</button>';
+  $("sheet").innerHTML = html;
+  $("sheet").classList.add("open"); $("overlay").classList.add("open");
 }
 function saveCash() {
   var amt = parseFloat($("cash-amount").value) || 0;
   if (amt <= 0) { toast("กรอกยอดเงินก่อนครับ"); return; }
-  var body = { amount: amt, student_id: $("cash-student").value || null, note: $("cash-note").value };
+  var body = { amount: amt, student_id: $("cash-student").value || null, note: $("cash-note").value, service: S._cashSvc || "lesson" };
   closeSheet();
   api("/coach/cash", { method: "POST", body: JSON.stringify(body) }).then(function(res) {
     if (res.ok) { toast("บันทึกเงินสด ฿" + amt.toLocaleString() + " แล้ว"); renderCoToday(); }
@@ -742,11 +839,12 @@ function openRevenueList() {
   var kindLabel = { package: "คอร์ส", per_session: "รายครั้ง", cash_income: "เงินสด" };
   var rows = rev.items.length
     ? rev.items.map(function(i) {
+        var typeLabel = (i.service === "knocker" ? "Knocker " : "") + (kindLabel[i.kind] || i.kind);
         return '<div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #EEF0E8">' +
           '<div style="flex-grow:1;min-width:0"><div style="font-size:14px;font-weight:600">' +
-            esc(i.student || i.note || (kindLabel[i.kind] || i.kind)) + '</div>' +
+            esc(i.student || i.note || typeLabel) + '</div>' +
           '<div class="muted" style="font-size:11px;margin-top:1px">' +
-            thDate(i.at, { day: "numeric", month: "short" }) + " · " + (kindLabel[i.kind] || i.kind) +
+            thDate(i.at, { day: "numeric", month: "short" }) + " · " + typeLabel +
             (i.note && i.student ? " · " + esc(i.note) : "") + '</div></div>' +
           '<span class="chip ' + (i.method === "cash" ? "chip-wait" : "chip-ok") + '" style="font-size:11px">' +
             (i.method === "cash" ? "สด" : "โอน") + '</span>' +
@@ -895,28 +993,41 @@ function renderCoStudents() {
       return;
     }
     $("co-st-list").innerHTML = res.students.map(function(s) {
-      var badge = "", bar = "", low = false;
+      var badge = "", bar = "", low = false, lowK = false;
       if (s.package) {
         low = s.package.remaining <= 2;
-        if (low) badge = '<span class="chip chip-wait">ใกล้หมดคอร์ส</span>';
-        else if (s.package.used === 0) badge = '<span class="chip chip-ok">คอร์สใหม่</span>';
+        if (low) badge += '<span class="chip chip-wait">ใกล้หมดคอร์ส</span>';
+        else if (s.package.used === 0) badge += '<span class="chip chip-ok">คอร์สใหม่</span>';
         var pct = Math.round(s.package.used / s.package.total * 100);
-        bar = '<div class="bar" style="margin-top:12px"><div style="width:' + pct + '%;' + (low ? "background:#D75F33" : "") + '"></div></div>';
-      } else if (s.pending_payment) {
-        badge = '<span class="chip chip-wait">รอตรวจการชำระ</span>';
-      } else {
-        badge = '<span class="chip chip-grey">รายครั้ง</span>';
+        bar += '<div class="bar" style="margin-top:12px"><div style="width:' + pct + '%;' + (low ? "background:#D75F33" : "") + '"></div></div>';
+      }
+      if (s.knocker_package) {
+        lowK = s.knocker_package.remaining <= 2;
+        badge += lowK ? '<span class="chip chip-wait">Knocker ใกล้หมด</span>' : '<span class="chip" style="background:#FBEAE1;color:#C2521F">Knocker</span>';
+        var pctK = Math.round(s.knocker_package.used / s.knocker_package.total * 100);
+        bar += '<div class="bar" style="margin-top:8px"><div style="width:' + pctK + '%;background:#C2521F"></div></div>';
+      }
+      if (!s.package && !s.knocker_package) {
+        badge += s.pending_payment
+          ? '<span class="chip chip-wait">รอตรวจการชำระ</span>'
+          : '<span class="chip chip-grey">รายครั้ง</span>';
       }
       if (s.credits > 0) {
         badge += '<span class="chip" style="background:var(--ball);color:var(--ball-ink)">เครดิต ' + s.credits + '</span>';
       }
-      var sub = s.package
-        ? "เหลือ " + s.package.remaining + "/" + s.package.total + " ครั้ง"
-        : "เรียนแล้ว " + s.lessons_done + " ครั้ง";
-      if (s.next_lesson) sub += " · คลาสถัดไป " + thDate(s.next_lesson, { weekday: "short", day: "numeric", month: "short" });
+      if (s.knocker_credits > 0) {
+        badge += '<span class="chip" style="background:var(--ball);color:var(--ball-ink)">เครดิต K ' + s.knocker_credits + '</span>';
+      }
+      var parts = [];
+      if (s.package) parts.push("เรียนเหลือ " + s.package.remaining + "/" + s.package.total);
+      if (s.knocker_package) parts.push("Knocker เหลือ " + s.knocker_package.remaining + "/" + s.knocker_package.total);
+      if (!parts.length) parts.push("มาแล้ว " + s.lessons_done + " ครั้ง");
+      var sub = parts.join(" · ");
+      if (s.next_lesson) sub += " · นัดถัดไป " + thDate(s.next_lesson, { weekday: "short", day: "numeric", month: "short" });
       else if (s.last_lesson) sub += " · ล่าสุด " + thDate(s.last_lesson, { weekday: "short", day: "numeric", month: "short" });
-      var actions = '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">' +
-        (low ? '<button class="btn btn-ball btn-sm" style="font-size:12px" onclick="coNudge(\'' + s.id + '\')">ชวนต่อคอร์ส</button>' : '') +
+      var actions = '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">' +
+        (low ? '<button class="btn btn-ball btn-sm" style="font-size:12px" onclick="coNudge(\'' + s.id + '\',\'lesson\')">ชวนต่อคอร์ส</button>' : '') +
+        (lowK ? '<button class="btn btn-ball btn-sm" style="font-size:12px" onclick="coNudge(\'' + s.id + '\',\'knocker\')">ชวนต่อ Knocker</button>' : '') +
         '<button class="btn btn-ghost btn-sm" style="font-size:12px" onclick="openCreditSheet(\'' + s.id + '\',\'' + esc(s.name) + '\')">+ เครดิต</button></div>';
       return '<div class="card" style="margin-bottom:10px"><div class="listrow">' +
         '<div class="avatar">' + (s.picture ? '<img src="' + esc(s.picture) + '" alt="">' : esc((s.name || "?").charAt(0))) + '</div>' +
@@ -927,14 +1038,27 @@ function renderCoStudents() {
   });
 }
 function openCreditSheet(id, name) {
-  S._credSid = id; S._credName = name; S._credN = 1;
+  S._credSid = id; S._credName = name; S._credN = 1; S._credSvc = "lesson";
   renderCreditSheet("");
+}
+function credSvcBtn(sv, label) {
+  var sel = S._credSvc === sv;
+  return '<button class="btn btn-ghost btn-sm" style="padding:10px 18px;font-size:14px;' +
+    (sel ? 'border:1.5px solid var(--green2);background:#F0F6F1;font-weight:700;' : '') +
+    '" onclick="setCredSvc(\'' + sv + '\')">' + label + '</button>';
+}
+function setCredSvc(sv) {
+  var v = $("cred-amount") ? $("cred-amount").value : "";
+  S._credSvc = sv;
+  renderCreditSheet(v);
 }
 function renderCreditSheet(amountVal) {
   var counts = [1, 2, 3, 5, 10];
   var html = '<div class="handle"></div>' +
     '<div style="font-size:16px;font-weight:700">เพิ่มเครดิตให้ ' + esc(S._credName) + '</div>' +
     '<div class="muted" style="font-size:12px;margin-top:4px">สำหรับรับเงินสด / คลาสทดลอง — นักเรียนเห็นเป็นเครดิต ไม่เห็นยอดเงิน</div>' +
+    '<div style="font-size:13px;font-weight:700;margin-top:14px">ประเภท</div>' +
+    '<div style="display:flex;gap:8px;margin-top:8px">' + credSvcBtn("lesson", "เรียน") + credSvcBtn("knocker", "Knocker") + '</div>' +
     '<div style="font-size:13px;font-weight:700;margin-top:14px">จำนวนครั้ง</div>' +
     '<div style="display:flex;gap:8px;margin-top:8px">' + counts.map(function(n) {
       return '<button class="btn btn-ghost btn-sm" style="padding:10px 18px;font-size:15px;' +
@@ -956,14 +1080,14 @@ function setCredN(n) {
 function saveCredit() {
   var amt = parseFloat($("cred-amount").value) || 0;
   closeSheet();
-  api("/coach/credits", { method: "POST", body: JSON.stringify({ student_id: S._credSid, count: S._credN, amount: amt }) })
+  api("/coach/credits", { method: "POST", body: JSON.stringify({ student_id: S._credSid, count: S._credN, amount: amt, service: S._credSvc || "lesson" }) })
     .then(function(res) {
       if (res.ok) { toast("เพิ่มเครดิต " + res.added + " ครั้งให้ " + S._credName + " แล้ว"); renderCoStudents(); }
       else toast("เพิ่มเครดิตไม่สำเร็จ");
     });
 }
-function coNudge(id) {
-  api("/coach/nudge", { method: "POST", body: JSON.stringify({ student_id: id }) }).then(function(res) {
+function coNudge(id, service) {
+  api("/coach/nudge", { method: "POST", body: JSON.stringify({ student_id: id, service: service || "lesson" }) }).then(function(res) {
     toast(res.ok ? "ส่งข้อความชวนต่อคอร์สแล้ว" : "ส่งไม่สำเร็จ (เช็ก Channel Access Token)");
   });
 }
